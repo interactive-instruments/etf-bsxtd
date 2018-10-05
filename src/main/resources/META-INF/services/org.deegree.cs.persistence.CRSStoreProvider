@@ -1,3 +1,0 @@
-org.deegree.cs.persistence.deegree.d3.DeegreeCRSStoreProvider
-org.deegree.cs.persistence.gml.GMLCRSStoreProvider
-org.deegree.cs.persistence.proj4.PROJ4CRSStoreProvider
