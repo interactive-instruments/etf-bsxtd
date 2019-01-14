@@ -38,12 +38,7 @@ import de.interactive_instruments.properties.ConfigProperties;
 import de.interactive_instruments.properties.ConfigPropertyHolder;
 
 /**
- * Used to propagate:
- * - Test Object Types (static),
- * - Test Item Types (static),
- * - Component Info (static),
- * - Executable Test Suites (dynamically reloaded on change),
- * - Translation Template Bun dles (dynamically reloaded on change)
+ * Used to propagate: - Test Object Types (static), - Test Item Types (static), - Component Info (static), - Executable Test Suites (dynamically reloaded on change), - Translation Template Bun dles (dynamically reloaded on change)
  *
  * The Component Info is propagated by the Test Driver
  *
@@ -51,47 +46,47 @@ import de.interactive_instruments.properties.ConfigPropertyHolder;
  */
 public class BsxTypeLoader extends AbstractEtsFileTypeLoader {
 
-	private final ConfigProperties configProperties;
+    private final ConfigProperties configProperties;
 
-	/**
-	 * Default constructor.
-	 */
-	public BsxTypeLoader(final DataStorage dataStorage) {
-		super(dataStorage, new BsxEtsBuilder(dataStorage.getDao(ExecutableTestSuiteDto.class)));
-		this.configProperties = new ConfigProperties(EtfConstants.ETF_PROJECTS_DIR);
-	}
+    /**
+     * Default constructor.
+     */
+    public BsxTypeLoader(final DataStorage dataStorage) {
+        super(dataStorage, new BsxEtsBuilder(dataStorage.getDao(ExecutableTestSuiteDto.class)));
+        this.configProperties = new ConfigProperties(EtfConstants.ETF_PROJECTS_DIR);
+    }
 
-	@Override
-	public void doInit()
-			throws ConfigurationException, InitializationException, InvalidStateTransitionException {
+    @Override
+    public void doInit()
+            throws ConfigurationException, InitializationException, InvalidStateTransitionException {
 
-		this.configProperties.expectAllRequiredPropertiesSet();
-		this.watchDir = configProperties.getPropertyAsFile(EtfConstants.ETF_PROJECTS_DIR);
-		try {
-			this.watchDir.expectDirIsReadable();
-		} catch (IOException e) {
-			throw new InitializationException(e);
-		}
+        this.configProperties.expectAllRequiredPropertiesSet();
+        this.watchDir = configProperties.getPropertyAsFile(EtfConstants.ETF_PROJECTS_DIR);
+        try {
+            this.watchDir.expectDirIsReadable();
+        } catch (IOException e) {
+            throw new InitializationException(e);
+        }
 
-		// First propagate static types
-		final WriteDao<TestItemTypeDto> testItemTypeDao = ((WriteDao<TestItemTypeDto>) dataStorageCallback
-				.getDao(TestItemTypeDto.class));
-		try {
-			testItemTypeDao.deleteAllExisting(TEST_ITEM_TYPES.keySet());
-			testItemTypeDao.addAll(TEST_ITEM_TYPES.values());
-		} catch (final StorageException e) {
-			try {
-				testItemTypeDao.deleteAllExisting(TEST_ITEM_TYPES.keySet());
-			} catch (StorageException e3) {
-				ExcUtils.suppress(e3);
-			}
-			throw new InitializationException(e);
-		}
-	}
+        // First propagate static types
+        final WriteDao<TestItemTypeDto> testItemTypeDao = ((WriteDao<TestItemTypeDto>) dataStorageCallback
+                .getDao(TestItemTypeDto.class));
+        try {
+            testItemTypeDao.deleteAllExisting(TEST_ITEM_TYPES.keySet());
+            testItemTypeDao.addAll(TEST_ITEM_TYPES.values());
+        } catch (final StorageException e) {
+            try {
+                testItemTypeDao.deleteAllExisting(TEST_ITEM_TYPES.keySet());
+            } catch (StorageException e3) {
+                ExcUtils.suppress(e3);
+            }
+            throw new InitializationException(e);
+        }
+    }
 
-	@Override
-	public ConfigPropertyHolder getConfigurationProperties() {
-		return configProperties;
-	}
+    @Override
+    public ConfigPropertyHolder getConfigurationProperties() {
+        return configProperties;
+    }
 
 }
