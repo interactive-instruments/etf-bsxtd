@@ -15,7 +15,7 @@ buildscript {
 			}}
 	}
 	dependencies {
-		classpath group: 'de.interactive_instruments.bda', name: 'etf-bda', version: '[1.0.29,1.0.99]'
+		classpath group: 'de.interactive_instruments.bda', name: 'etf-bda', version: '[1.0.30,1.0.99]'
 	}
 	dependencies {
 		ant.unjar src: configurations.classpath.files.find {it.path.contains('etf')}, dest: 'build/gradle'
