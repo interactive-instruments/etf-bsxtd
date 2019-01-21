@@ -21,57 +21,66 @@ package de.interactive_instruments.etf.testdriver.bsx;
 
 import static de.interactive_instruments.etf.testdriver.bsx.Types.TEST_ITEM_TYPES;
 
-import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Collections;
 
 import de.interactive_instruments.etf.EtfConstants;
+import de.interactive_instruments.etf.component.loaders.AbstractItemFileLoaderFactory;
+import de.interactive_instruments.etf.component.loaders.LoadingContext;
 import de.interactive_instruments.etf.dal.dao.DataStorage;
 import de.interactive_instruments.etf.dal.dao.WriteDao;
 import de.interactive_instruments.etf.dal.dto.test.ExecutableTestSuiteDto;
 import de.interactive_instruments.etf.dal.dto.test.TestItemTypeDto;
-import de.interactive_instruments.etf.testdriver.AbstractEtsFileTypeLoader;
+import de.interactive_instruments.etf.model.DefaultEidSet;
+import de.interactive_instruments.etf.model.EidSet;
+import de.interactive_instruments.etf.testdriver.ExecutableTestSuiteLoader;
 import de.interactive_instruments.exceptions.ExcUtils;
 import de.interactive_instruments.exceptions.InitializationException;
-import de.interactive_instruments.exceptions.InvalidStateTransitionException;
 import de.interactive_instruments.exceptions.StorageException;
 import de.interactive_instruments.exceptions.config.ConfigurationException;
 import de.interactive_instruments.properties.ConfigProperties;
 import de.interactive_instruments.properties.ConfigPropertyHolder;
 
 /**
- * Used to propagate: - Test Object Types (static), - Test Item Types (static), - Component Info (static), - Executable Test Suites (dynamically reloaded on change), - Translation Template Bun dles (dynamically reloaded on change)
+ * Used to propagate: - Test Object Types (static), - Test Item Types (static), - Component Info (static), - Executable Test Suites (dynamically reloaded on change), - Translation Template Bundles (dynamically reloaded on change)
  *
  * The Component Info is propagated by the Test Driver
  *
  * @author Jon Herrmann ( herrmann aT interactive-instruments doT de )
  */
-public class BsxTypeLoader extends AbstractEtsFileTypeLoader {
+public class BsxFileLoaderFactory extends AbstractItemFileLoaderFactory<ExecutableTestSuiteDto>
+        implements ExecutableTestSuiteLoader {
 
     private final ConfigProperties configProperties;
+    private final DataStorage dataStorageCallback;
+    private boolean initialized;
 
     /**
      * Default constructor.
      */
-    public BsxTypeLoader(final DataStorage dataStorage) {
-        super(dataStorage, new BsxEtsBuilder(dataStorage.getDao(ExecutableTestSuiteDto.class)));
+    public BsxFileLoaderFactory(final DataStorage dataStorageCallback) {
         this.configProperties = new ConfigProperties(EtfConstants.ETF_PROJECTS_DIR);
+        this.dataStorageCallback = dataStorageCallback;
     }
 
     @Override
-    public void doInit()
-            throws ConfigurationException, InitializationException, InvalidStateTransitionException {
+    public void init()
+            throws ConfigurationException, InitializationException {
 
         this.configProperties.expectAllRequiredPropertiesSet();
-        this.watchDir = configProperties.getPropertyAsFile(EtfConstants.ETF_PROJECTS_DIR);
-        try {
-            this.watchDir.expectDirIsReadable();
-        } catch (IOException e) {
-            throw new InitializationException(e);
+        if (this.loadingContext == null) {
+            throw new InitializationException("LoadingContext not set");
         }
+
+        this.loadingContext.getItemFileObserverRegistry().register(
+                this.configProperties.getPropertyAsFile(EtfConstants.ETF_PROJECTS_DIR).toPath(),
+                Collections.singletonList(this));
 
         // First propagate static types
         final WriteDao<TestItemTypeDto> testItemTypeDao = ((WriteDao<TestItemTypeDto>) dataStorageCallback
                 .getDao(TestItemTypeDto.class));
         try {
+            this.loadingContext.getItemRegistry().register(TEST_ITEM_TYPES.values());
             testItemTypeDao.deleteAllExisting(TEST_ITEM_TYPES.keySet());
             testItemTypeDao.addAll(TEST_ITEM_TYPES.values());
         } catch (final StorageException e) {
@@ -82,6 +91,8 @@ public class BsxTypeLoader extends AbstractEtsFileTypeLoader {
             }
             throw new InitializationException(e);
         }
+
+        this.initialized = true;
     }
 
     @Override
@@ -89,4 +100,35 @@ public class BsxTypeLoader extends AbstractEtsFileTypeLoader {
         return configProperties;
     }
 
+    @Override
+    public EidSet<ExecutableTestSuiteDto> getExecutableTestSuites() {
+        return new DefaultEidSet<>(this.getItems());
+    }
+
+    @Override
+    public void setLoadingContext(final LoadingContext loadingContext) {
+        this.loadingContext = loadingContext;
+    }
+
+    @Override
+    public boolean isInitialized() {
+        return this.initialized;
+    }
+
+    @Override
+    public void release() {
+        this.loadingContext.getItemFileObserverRegistry().deregister(
+                Collections.singletonList(this));
+    }
+
+    @Override
+    public boolean couldHandle(final Path path) {
+        return path.toString().endsWith(BsxConstants.ETS_DEF_FILE_SUFFIX);
+    }
+
+    @Override
+    public FileChangeListener load(final Path path) {
+        return new BsxFileLoader(this, path,
+                dataStorageCallback.getDao(ExecutableTestSuiteDto.class)).setItemRegistry(this.getItemRegistry());
+    }
 }

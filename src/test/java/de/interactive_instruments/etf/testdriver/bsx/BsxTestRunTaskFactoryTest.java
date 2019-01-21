@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import de.interactive_instruments.IFile;
 import de.interactive_instruments.etf.EtfConstants;
 import de.interactive_instruments.etf.component.ComponentNotLoadedException;
+import de.interactive_instruments.etf.component.loaders.*;
 import de.interactive_instruments.etf.dal.dao.DataStorage;
 import de.interactive_instruments.etf.dal.dao.DataStorageRegistry;
 import de.interactive_instruments.etf.dal.dao.WriteDao;
@@ -70,6 +71,22 @@ public class BsxTestRunTaskFactoryTest {
 
     private static TestDriverManager testDriverManager = null;
     private static DataStorage DATA_STORAGE;
+
+    private static class ItemLoadingContext implements LoadingContext {
+
+        private final ItemRegistry itemRegistry = new DefaultItemRegistry();
+        private final ItemFileObserverRegistry itemFileObserverRegistry = new DefaultItemFileObserverRegistry();
+
+        @Override
+        public ItemRegistry getItemRegistry() {
+            return itemRegistry;
+        }
+
+        @Override
+        public ItemFileObserverRegistry getItemFileObserverRegistry() {
+            return itemFileObserverRegistry;
+        }
+    }
 
     private final static EID geometryEtsId = EidFactory.getDefault()
             .createAndPreserveStr("99b8aecd-4082-4773-b316-a138e6ed8b35");
@@ -165,7 +182,7 @@ public class BsxTestRunTaskFactoryTest {
     @BeforeClass
     public static void setUp()
             throws IOException, ConfigurationException, InvalidStateTransitionException,
-            InitializationException, ObjectWithIdNotFoundException, StorageException {
+            InitializationException, ObjectWithIdNotFoundException, StorageException, InterruptedException {
 
         // DO NOT RUN THE TESTS IN THE IDE BUT WITH GRADLE
 
@@ -208,13 +225,16 @@ public class BsxTestRunTaskFactoryTest {
                     BsxDataStorage.class.getName());
 
             // Load MetadataFileTypeLoader for TranslationTemplate
-            final MetadataFileTypeLoader metadataTypeLoader = new MetadataFileTypeLoader(DATA_STORAGE);
-            metadataTypeLoader.getConfigurationProperties().setPropertiesFrom(testDriverManager.getConfigurationProperties(),
+            final ItemLoadingContext lc = new ItemLoadingContext();
+            MetadataFilesLoader metadataFilesLoader = new MetadataFilesLoader(DATA_STORAGE, lc);
+            metadataFilesLoader.getConfigurationProperties().setPropertiesFrom(testDriverManager.getConfigurationProperties(),
                     true);
-            metadataTypeLoader.init();
+            metadataFilesLoader.init();
 
+            testDriverManager.setLoadingContext(lc);
             testDriverManager.init();
             testDriverManager.load(EidFactory.getDefault().createAndPreserveStr(BSX_TEST_DRIVER_EID));
+            Thread.sleep(1000);
         }
     }
 
@@ -226,7 +246,7 @@ public class BsxTestRunTaskFactoryTest {
         final TestRunDto testRunDto = createTestRunDtoForProject();
 
         final TestRun testRun = testDriverManager.createTestRun(testRunDto);
-        final TaskPoolRegistry<TestRunDto, TestRun> taskPoolRegistry = new TaskPoolRegistry<>(1, 1);
+        final TaskPoolRegistry<TestRunDto, TestRun> taskPoolRegistry = new TaskPoolRegistry<>(1, 1, 1);
         testRun.init();
         taskPoolRegistry.submitTask(testRun);
 

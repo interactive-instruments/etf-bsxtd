@@ -146,8 +146,8 @@ public class BsxTestDriver extends AbstractTestDriver {
         configureDeegree();
         propagateComponents(installGmlGeoX());
 
-        typeLoader = new BsxTypeLoader(dataStorageCallback);
-        typeLoader.getConfigurationProperties().setPropertiesFrom(configProperties, true);
+        loader = new BsxFileLoaderFactory(dataStorageCallback);
+        loader.getConfigurationProperties().setPropertiesFrom(configProperties, true);
     }
 
     private void propagateComponents(ComponentInfo gmlGeoXInfo) throws InitializationException {
