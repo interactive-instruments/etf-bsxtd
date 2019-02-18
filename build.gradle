@@ -53,9 +53,9 @@ repositories {
 	}
 }
 
-ext.basexVersion = '8.6.7'
+ext.basexVersion = '9.1.2'
 ext.deegreeVersion = '3.3.20'
-ext.gmlGeoXVersion = '1.2.2'
+ext.gmlGeoXVersion = '2.0.0'
 
 configurations {
 	api
