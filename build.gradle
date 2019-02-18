@@ -70,6 +70,7 @@ dependencies {
 	compileOnly group: 'de.interactive_instruments.etf', name: 'etf-spi', version:'1.0.2'+project.snapshotSuffix
 	api group: 'org.basex', name: 'basex', version: basexVersion
   bsxPlugins group: 'de.interactive_instruments.etf.bsxm', name: 'etf-gmlgeox', version: "$gmlGeoXVersion"+project.snapshotSuffix
+	bsxPlugins group: 'de.interactive_instruments.etf.bsxm', name: 'etf-bsx-topox', version: "$topoXVersion"+project.snapshotSuffix
 
 	compile group: 'commons-logging', name: 'commons-logging', version:'1.1.1'
 	compile group: 'commons-io', name: 'commons-io', version: etf_commonsIoVersion
@@ -141,12 +142,12 @@ jar {
 }
 
 jar {
-    into('plugins') {
-        from configurations.bsxPlugins.copy().setTransitive(false)
-        rename { String fileName ->
-            fileName.replaceAll('-(\\d+)\\.(\\d+)\\.(\\d+)(-SNAPSHOT)?', "")
-        }
-    }
+	into('plugins') {
+		from configurations.bsxPlugins.copy().setTransitive(false)
+		rename { String fileName ->
+			fileName.replaceAll('-(\\d+)\\.(\\d+)\\.(\\d+)(-SNAPSHOT)?', "")
+		}
+	}
 }
 
 task deployTestDriver(dependsOn: jar) {
