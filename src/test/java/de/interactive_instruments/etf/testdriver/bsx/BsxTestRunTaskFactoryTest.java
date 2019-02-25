@@ -49,7 +49,6 @@ import de.interactive_instruments.etf.dal.dto.result.TestTaskResultDto;
 import de.interactive_instruments.etf.dal.dto.run.TestRunDto;
 import de.interactive_instruments.etf.dal.dto.run.TestTaskDto;
 import de.interactive_instruments.etf.dal.dto.test.ExecutableTestSuiteDto;
-import de.interactive_instruments.etf.dal.dto.translation.TranslationArgumentCollectionDto;
 import de.interactive_instruments.etf.detector.TestObjectTypeDetectorManager;
 import de.interactive_instruments.etf.model.EID;
 import de.interactive_instruments.etf.model.EidFactory;
@@ -262,30 +261,10 @@ public class BsxTestRunTaskFactoryTest {
         assertNotNull(result.getTestModuleResults());
         assertNotNull(result.getTestModuleResults().get(0).getResultedFrom());
 
-        /*
-        assertEquals("FAILED", result.getTestModuleResults().get(0).getResultStatus().toString());
-
-        assertEquals("FAILED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0)
-                .getTestAssertionResults().get(0).getResultStatus().toString());
-        assertEquals("FAILED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0)
-                .getTestAssertionResults().get(1).getResultStatus().toString());
-        assertEquals("FAILED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0)
-                .getTestAssertionResults().get(2).getResultStatus().toString());
-        assertEquals("PASSED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0)
-                .getTestAssertionResults().get(3).getResultStatus().toString());
-        assertEquals("PASSED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0)
-                .getTestAssertionResults().get(4).getResultStatus().toString());
-
-        boolean messageFound = false;
-        for (final TranslationArgumentCollectionDto arg : result.getTestModuleResults().get(0).getTestCaseResults().get(0)
-                .getTestStepResults().get(0).getTestAssertionResults().get(1).getMessages()) {
-            if (arg.getTokenValues().get("text") != null && arg.getTokenValues().get("text").getValue()
-                    .contains("Cannot parse 'gml:posList': contains 14 values, but coordinate dimension is 3.")) {
-                messageFound = true;
-                break;
-            }
-        }
-        assertTrue(messageFound);
-        */
+        /* assertEquals("FAILED", result.getTestModuleResults().get(0).getResultStatus().toString());
+         *
+         * assertEquals("FAILED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0) .getTestAssertionResults().get(0).getResultStatus().toString()); assertEquals("FAILED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0) .getTestAssertionResults().get(1).getResultStatus().toString()); assertEquals("FAILED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0) .getTestAssertionResults().get(2).getResultStatus().toString()); assertEquals("PASSED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0) .getTestAssertionResults().get(3).getResultStatus().toString()); assertEquals("PASSED", result.getTestModuleResults().get(0).getTestCaseResults().get(0).getTestStepResults().get(0) .getTestAssertionResults().get(4).getResultStatus().toString());
+         *
+         * boolean messageFound = false; for (final TranslationArgumentCollectionDto arg : result.getTestModuleResults().get(0).getTestCaseResults().get(0) .getTestStepResults().get(0).getTestAssertionResults().get(1).getMessages()) { if (arg.getTokenValues().get("text") != null && arg.getTokenValues().get("text").getValue() .contains("Cannot parse 'gml:posList': contains 14 values, but coordinate dimension is 3.")) { messageFound = true; break; } } assertTrue(messageFound); */
     }
 }
