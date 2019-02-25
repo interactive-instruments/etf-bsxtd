@@ -144,13 +144,13 @@ public class BsxTestDriver extends AbstractTestDriver {
         }
 
         configureDeegree();
-        propagateComponents(installGmlGeoX());
+        propagateComponents(installGmlGeoX(), installTopoX());
 
         loader = new BsxFileLoaderFactory(dataStorageCallback);
         loader.getConfigurationProperties().setPropertiesFrom(configProperties, true);
     }
 
-    private void propagateComponents(ComponentInfo gmlGeoXInfo) throws InitializationException {
+    private void propagateComponents(ComponentInfo... info) throws InitializationException {
         // Propagate Component info from here
         final WriteDao<ComponentDto> componentDao = ((WriteDao<ComponentDto>) dataStorageCallback.getDao(ComponentDto.class));
         try {
@@ -160,14 +160,17 @@ public class BsxTestDriver extends AbstractTestDriver {
             } catch (final ObjectWithIdNotFoundException e) {
                 ExcUtils.suppress(e);
             }
-            // Remove existing GmlGeoX
-            try {
-                componentDao.delete(gmlGeoXInfo.getId());
-            } catch (final ObjectWithIdNotFoundException e) {
-                ExcUtils.suppress(e);
+            for (final ComponentInfo componentInfo : info) {
+                try {
+                    componentDao.delete(componentInfo.getId());
+                } catch (final ObjectWithIdNotFoundException e) {
+                    ExcUtils.suppress(e);
+                }
             }
             componentDao.add(new ComponentDto(this.getInfo()));
-            componentDao.add(new ComponentDto(gmlGeoXInfo));
+            for (final ComponentInfo componentInfo : info) {
+                componentDao.add(new ComponentDto(componentInfo));
+            }
         } catch (StorageException e) {
             throw new InitializationException(e);
         }
@@ -284,6 +287,63 @@ public class BsxTestDriver extends AbstractTestDriver {
             return gmlGeoXInfo;
         } catch (IOException | QueryException e) {
             throw new InitializationException("GmlGeoX installation failed: ", e);
+        }
+    }
+
+    // Todo refactor this, think about packaging
+    private ComponentInfo installTopoX() throws InitializationException {
+        final Context ctx = new Context();
+        final RepoManager repoManger = new RepoManager(ctx);
+        try {
+            repoManger.delete("ETF TopoX");
+        } catch (QueryException e) {
+            ExcUtils.suppress(e);
+        }
+        try {
+            // Extract gmlGeoX to temporary directory and install it
+            final IFile tmpTopoxXFile = IFile.createTempFile("topox", "etf.xar");
+            IoUtils.copyResourceToFile(this, "/plugins/etf-bsx-topox.xar", tmpTopoxXFile);
+            String v;
+            try {
+                v = JarUtils.getManifest(tmpTopoxXFile).getMainAttributes().getValue("Implementation-Version");
+            } catch (IOException e) {
+                v = "0.0.0";
+            }
+            final String version = v;
+
+            final ComponentInfo topoxInfo = new ComponentInfo() {
+                @Override
+                public EID getId() {
+                    return EidFactory.getDefault().createUUID("etf-TopoX");
+                }
+
+                @Override
+                public String getName() {
+                    return "TopoX";
+                }
+
+                @Override
+                public String getVersion() {
+                    return version;
+                }
+
+                @Override
+                public String getVendor() {
+                    return "interactive instruments GmbH";
+                }
+
+                @Override
+                public String getDescription() {
+                    return "BaseX test driver extension module "
+                            + "to validate the topology of geometric Features";
+                }
+            };
+            repoManger.install(tmpTopoxXFile.getAbsolutePath());
+            tmpTopoxXFile.delete();
+
+            return topoxInfo;
+        } catch (IOException | QueryException e) {
+            throw new InitializationException("TopoX installation failed: ", e);
         }
     }
 
