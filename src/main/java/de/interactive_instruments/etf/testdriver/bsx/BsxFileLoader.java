@@ -63,6 +63,8 @@ class BsxFileLoader extends AbstractItemFileLoader<ExecutableTestSuiteDto> {
                     "/etf:ExecutableTestSuite[1]/etf:translationTemplateBundle/@ref", file));
             dependsOn(EtfXpathEvaluator.evalEids(
                     "/etf:ExecutableTestSuite[1]/etf:tags[1]/etf:tag/@ref", file));
+            dependsOn(EtfXpathEvaluator.evalEids(
+                    "/etf:ExecutableTestSuite[1]/etf:supportedTestObjectTypes[1]/etf:testObjectType/@ref", file));
         } catch (XPathExpressionException | IOException e) {
             return false;
         }
