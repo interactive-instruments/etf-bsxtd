@@ -67,7 +67,7 @@ public class DatabasePartitioner implements DatabaseVisitor {
         this.logger = logger;
         this.filenameCutIndex = filenameCutIndex;
         this.maxDbSizeSizePerChunk = maxDbSizeSizePerChunk;
-        this.currentDbName = dbBaseName + "-0";
+        this.currentDbName = dbBaseName + "-000";
 
         new org.basex.core.cmd.Set("AUTOFLUSH", "false").execute(ctx);
         new org.basex.core.cmd.Set("TEXTINDEX", "true").execute(ctx);
@@ -99,7 +99,7 @@ public class DatabasePartitioner implements DatabaseVisitor {
 
     private synchronized Context createDbAndExchangeContext() throws BaseXException {
         final Context oldContext = this.ctx;
-        currentDbName = dbBaseName + "-" + ++currentDbIndex;
+        currentDbName = dbBaseName + "-" + String.format("%03d", ++currentDbIndex);
         final Context newCtx = new Context(this.ctx);
         new CreateDB(currentDbName).execute(newCtx);
         this.ctx = newCtx;
