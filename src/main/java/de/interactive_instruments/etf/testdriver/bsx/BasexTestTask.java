@@ -151,7 +151,7 @@ class BasexTestTask extends AbstractTestTask {
                 EnumSet.of(FileVisitOption.FOLLOW_LINKS), 5, fileHashVisitor);
 
         final boolean testObjectChanged;
-         if ("false".equals(testObject.properties().getPropertyOrDefault("indexed", "false"))) {
+        if ("false".equals(testObject.properties().getPropertyOrDefault("indexed", "false"))) {
             testObjectChanged = true;
             getLogger().info("Creating new tests databases to speed up tests.");
         } else if (!fileHashVisitor.getHash().equals(testObject.getItemHash())) {
