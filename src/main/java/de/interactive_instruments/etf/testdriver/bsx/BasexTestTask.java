@@ -127,7 +127,9 @@ class BasexTestTask extends AbstractTestTask {
         this.projDir.expectDirIsReadable();
         this.projectFile.expectIsReadable();
 
-        final TestObjectDto testObject = testTaskDto.getTestObject();
+        // TODO fix with a TestObjectPreparationTask
+        final TestObjectDto tmpTestObject = testTaskDto.getTestObject();
+        final TestObjectDto testObject = testObjectDao.getById(tmpTestObject.getId()).getDto();
 
         // Todo multiple dirs
         final IFile testDataDirDir = new IFile(
