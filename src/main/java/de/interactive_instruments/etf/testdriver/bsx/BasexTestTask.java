@@ -127,8 +127,7 @@ class BasexTestTask extends AbstractTestTask {
         this.projDir.expectDirIsReadable();
         this.projectFile.expectIsReadable();
 
-        // TODO fix with a TestObjectPreparationTask
-        final TestObjectDto testObject = testObjectDao.getById(testTaskDto.getTestObject().getId()).getDto();
+        final TestObjectDto testObject = testTaskDto.getTestObject();
 
         // Todo multiple dirs
         final IFile testDataDirDir = new IFile(
@@ -152,10 +151,10 @@ class BasexTestTask extends AbstractTestTask {
                 EnumSet.of(FileVisitOption.FOLLOW_LINKS), 5, fileHashVisitor);
 
         final boolean testObjectChanged;
-        if ("false".equals(testObject.properties().getPropertyOrDefault("indexed", "false"))) {
+         if ("false".equals(testObject.properties().getPropertyOrDefault("indexed", "false"))) {
             testObjectChanged = true;
             getLogger().info("Creating new tests databases to speed up tests.");
-        } else if (fileHashVisitor.getHash().equals(testObject.getItemHash())) {
+        } else if (!fileHashVisitor.getHash().equals(testObject.getItemHash())) {
             // Delete old databases
             getLogger().info("Recreating new tests databases as the Test Object has changed!");
             for (int i = 0; i < 10000; i++) {
