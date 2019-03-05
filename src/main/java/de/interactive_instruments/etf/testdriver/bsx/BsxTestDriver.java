@@ -70,6 +70,7 @@ public class BsxTestDriver extends AbstractTestDriver {
     public static final String BSX_TEST_DRIVER_EID = "4dddc9e2-1b21-40b7-af70-6a2d156ad130";
     public static final long DEFAULT_MAX_CHUNK_SIZE = 33500000000L;
     private static final String GMLGEOX_SRSCONFIG_DIR = "etf.testdrivers.bsx.gmlgeox.srsconfig.dir";
+    private static final String CHOP_WHITESPACES = "etf.testdrivers.bsx.whitespaces.chop";
     private DataStorage dataStorageCallback;
 
     private final ComponentInfo info = new ComponentInfo() {
@@ -125,7 +126,8 @@ public class BsxTestDriver extends AbstractTestDriver {
             testTaskResult.setId(EidFactory.getDefault().createRandomId());
             testTaskDto.setTestTaskResult(testTaskResult);
             return new BasexTestTask(testTaskDto, ((WriteDao) dataStorageCallback.getDao(TestObjectDto.class)),
-                    configProperties.getPropertyOrDefaultAsLong(BsxConstants.DB_MAX_CHUNK_SIZE, DEFAULT_MAX_CHUNK_SIZE));
+                    configProperties.getPropertyOrDefaultAsLong(BsxConstants.DB_MAX_CHUNK_SIZE, DEFAULT_MAX_CHUNK_SIZE),
+                    configProperties.getPropertyOrDefault(CHOP_WHITESPACES, "true").equals("true"));
         } catch (InvalidPropertyException | IncompleteDtoException e) {
             throw new TestTaskInitializationException(e);
         }

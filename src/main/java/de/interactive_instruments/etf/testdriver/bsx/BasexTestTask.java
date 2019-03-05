@@ -78,6 +78,7 @@ class BasexTestTask extends AbstractTestTask {
     private final IFile projectFile;
     private final IFile projDir;
     private final long maxDbChunkSize;
+    private final boolean chopWhitespaces;
     private TestResultCollector resultCollector;
 
     static class BasexTaskProgress extends AbstractTestTaskProgress {
@@ -103,11 +104,12 @@ class BasexTestTask extends AbstractTestTask {
      *             database error
      */
     public BasexTestTask(final TestTaskDto testTaskDto, final WriteDao<TestObjectDto> testObjectDao,
-            final long maxDbChunkSize) {
+            final long maxDbChunkSize, final boolean chopWhitespaces) {
         super(testTaskDto, new BasexTaskProgress(), BasexTestTask.class.getClassLoader());
         this.testObjectDao = testObjectDao;
 
         this.maxDbChunkSize = maxDbChunkSize;
+        this.chopWhitespaces = chopWhitespaces;
 
         this.dbName = BsxConstants.ETF_TESTDB_PREFIX + testTaskDto.getTestObject().getId().toString();
         this.ctx = new Context();
@@ -212,7 +214,7 @@ class BasexTestTask extends AbstractTestTask {
         final DatabaseVisitor databaseVisitor;
         if (testObjectChanged) {
             databaseVisitor = new DatabasePartitioner(maxDbChunkSize, getLogger(), this.dbName,
-                    testDataDirDir.getAbsolutePath().length());
+                    testDataDirDir.getAbsolutePath().length(), chopWhitespaces);
         } else {
             databaseVisitor = new DatabaseInventarization(maxDbChunkSize);
         }

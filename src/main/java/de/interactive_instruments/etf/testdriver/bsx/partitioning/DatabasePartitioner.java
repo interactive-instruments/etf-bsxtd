@@ -62,7 +62,8 @@ public class DatabasePartitioner implements DatabaseVisitor {
     private final int filenameCutIndex;
 
     public DatabasePartitioner(long maxDbSizeSizePerChunk, final Logger logger,
-            final String dbName, final int filenameCutIndex) throws BaseXException {
+            final String dbName, final int filenameCutIndex,
+            final boolean chopWhitespaces) throws BaseXException {
         this.dbBaseName = dbName;
         this.logger = logger;
         this.filenameCutIndex = filenameCutIndex;
@@ -74,6 +75,7 @@ public class DatabasePartitioner implements DatabaseVisitor {
         new org.basex.core.cmd.Set("ATTRINDEX", "true").execute(ctx);
         new org.basex.core.cmd.Set("FTINDEX", "true").execute(ctx);
         new org.basex.core.cmd.Set("MAXLEN", "160").execute(ctx);
+        new org.basex.core.cmd.Set("CHOP", String.valueOf(chopWhitespaces)).execute(ctx);
         // already filtered
         new org.basex.core.cmd.Set("SKIPCORRUPT", "false").execute(ctx);
         new CreateDB(currentDbName).execute(ctx);
