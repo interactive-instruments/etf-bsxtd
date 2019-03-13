@@ -322,7 +322,7 @@ class BasexTestTask extends AbstractTestTask {
         this.resultCollector = this.getPersistor().getResultCollector();
 
         Thread.currentThread().setContextClassLoader(this.getClass().getClassLoader());
-        ((BasexTaskProgress) progress).doInit(10);
+        ((BasexTaskProgress) progress).doInit(testTaskDto.getExecutableTestSuite().getLowestLevelItemSize());
     }
 
     /**
