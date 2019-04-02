@@ -19,6 +19,8 @@
  */
 package de.interactive_instruments.etf.testdriver.bsx.partitioning;
 
+import static de.interactive_instruments.etf.testdriver.bsx.BsxConstants.DEFAULT_CHUNK_SIZE_THRESHOLD;
+
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
@@ -27,6 +29,11 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import org.basex.core.BaseXException;
+
+import de.interactive_instruments.etf.testdriver.bsx.BsxConstants;
+import de.interactive_instruments.exceptions.ExcUtils;
+import de.interactive_instruments.exceptions.config.InvalidPropertyException;
+import de.interactive_instruments.properties.ConfigPropertyHolder;
 
 /**
  * @author Jon Herrmann ( herrmann aT interactive-instruments doT de )
@@ -39,10 +46,17 @@ public class DatabaseInventarization implements DatabaseVisitor {
     private long size = 0;
     private long fileCount = 0;
 
-    public DatabaseInventarization(long maxDbSizeSizePerChunk) throws BaseXException {
+    public DatabaseInventarization(final ConfigPropertyHolder config) throws BaseXException {
         currentDbIndex = 0;
         fileCount = 0L;
-        this.maxDbSizeSizePerChunk = maxDbSizeSizePerChunk;
+        long chunkSize;
+        try {
+            chunkSize = config.getPropertyOrDefaultAsLong(BsxConstants.DB_MAX_CHUNK_THRESHOLD, DEFAULT_CHUNK_SIZE_THRESHOLD);
+        } catch (InvalidPropertyException e) {
+            ExcUtils.suppress(e);
+            chunkSize = DEFAULT_CHUNK_SIZE_THRESHOLD;
+        }
+        this.maxDbSizeSizePerChunk = chunkSize;
     }
 
     @Override

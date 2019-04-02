@@ -19,159 +19,238 @@
  */
 package de.interactive_instruments.etf.testdriver.bsx.partitioning;
 
+import static de.interactive_instruments.etf.testdriver.bsx.BsxConstants.*;
+
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import org.apache.commons.io.FileUtils;
 import org.basex.core.BaseXException;
 import org.basex.core.Context;
 import org.basex.core.cmd.*;
 import org.slf4j.Logger;
+
+import de.interactive_instruments.FileUtils;
+import de.interactive_instruments.etf.testdriver.bsx.BsxConstants;
+import de.interactive_instruments.exceptions.ExcUtils;
+import de.interactive_instruments.exceptions.config.InvalidPropertyException;
+import de.interactive_instruments.properties.ConfigPropertyHolder;
 
 /**
  * @author Jon Herrmann ( herrmann aT interactive-instruments doT de )
  */
 public class DatabasePartitioner implements DatabaseVisitor {
 
-    private final long maxDbSizeSizePerChunk;
+    private final ConfigPropertyHolder config;
+    private final long dbSizeSizePerChunkThreshold;
+    private final long minSizeForOptimization;
     private Context ctx = new Context();
     private final String dbBaseName;
     private final Set<String> skippedFiles = new TreeSet<>();
     private final Logger logger;
 
-    // Needs to be syn
-    // chronized in block if a new chunk is generated
+    // synchronized
     private int currentDbIndex = 0;
-    // Needs to be synchronized in block if a new chunk is generated
+    // synchronized
     private String currentDbName;
 
-    // Needs to be synchronized in any case
+    // synchronized
     private AtomicLong currentDbSize = new AtomicLong(0);
 
-    // Needs to be synchronized in block if new file is added
+    // synchronized
     private long fileCount = 0L;
-    // Needs to be synchronized in block if new file is added
+    // synchronized
     private long size = 0L;
 
     // Cut the first part of the added file name
     private final int filenameCutIndex;
 
-    public DatabasePartitioner(long maxDbSizeSizePerChunk, final Logger logger,
-            final String dbName, final int filenameCutIndex,
-            final boolean chopWhitespaces) throws BaseXException {
+    // The write lock is acquired when the database is flushed,
+    // read locks are acquired for adding single files
+    private final Lock flushLock = new ReentrantLock();
+    private final ReentrantReadWriteLock fairCtxLock = new ReentrantReadWriteLock(true);
+
+    public DatabasePartitioner(final ConfigPropertyHolder config, final Logger logger,
+            final String dbName, final int filenameCutIndex) throws BaseXException {
         this.dbBaseName = dbName;
         this.logger = logger;
         this.filenameCutIndex = filenameCutIndex;
-        this.maxDbSizeSizePerChunk = maxDbSizeSizePerChunk;
+
+        long chunkSize;
+        try {
+            chunkSize = config.getPropertyOrDefaultAsLong(BsxConstants.DB_MAX_CHUNK_THRESHOLD, DEFAULT_CHUNK_SIZE_THRESHOLD);
+        } catch (InvalidPropertyException e) {
+            ExcUtils.suppress(e);
+            chunkSize = DEFAULT_CHUNK_SIZE_THRESHOLD;
+        }
+        this.dbSizeSizePerChunkThreshold = chunkSize;
+
+        long minSizeForOptimization;
+        final long GB_40 = 42949672960L;
+        try {
+            minSizeForOptimization = config.getPropertyOrDefaultAsLong(MIN_OPTIMIZATION_SIZE, GB_40);
+        } catch (InvalidPropertyException e) {
+            ExcUtils.suppress(e);
+            minSizeForOptimization = GB_40;
+        }
+        this.minSizeForOptimization = minSizeForOptimization;
+
         this.currentDbName = dbBaseName + "-000";
 
-        new org.basex.core.cmd.Set("AUTOFLUSH", "false").execute(ctx);
-        new org.basex.core.cmd.Set("TEXTINDEX", "true").execute(ctx);
-        new org.basex.core.cmd.Set("ATTRINDEX", "true").execute(ctx);
-        new org.basex.core.cmd.Set("FTINDEX", "true").execute(ctx);
-        new org.basex.core.cmd.Set("MAXLEN", "160").execute(ctx);
-        new org.basex.core.cmd.Set("CHOP", String.valueOf(chopWhitespaces)).execute(ctx);
-        // already filtered
-        new org.basex.core.cmd.Set("SKIPCORRUPT", "false").execute(ctx);
+        this.config = config;
+        setOptions(ctx);
+
+        if (this.dbSizeSizePerChunkThreshold != DEFAULT_CHUNK_SIZE_THRESHOLD) {
+            this.logger.info("Database chunk size threshold is set to  {}",
+                    FileUtils.byteCountToDisplayRoundedSize(dbSizeSizePerChunkThreshold, 2));
+        }
+        this.logger.info("Creating first database {}", this.currentDbName);
         new CreateDB(currentDbName).execute(ctx);
     }
 
-    private static void flushAndOptimize(final Context ctx) throws BaseXException {
-        new Flush().execute(ctx);
-        new OptimizeAll().execute(ctx);
-        new Close().execute(ctx);
-    }
+    private void setOptions(final Context ctx) {
+        try {
+            new org.basex.core.cmd.Set("AUTOFLUSH", "false").execute(ctx);
+            new org.basex.core.cmd.Set("TEXTINDEX", "true").execute(ctx);
+            new org.basex.core.cmd.Set("ATTRINDEX", "true").execute(ctx);
+            new org.basex.core.cmd.Set("FTINDEX", "true").execute(ctx);
+            new org.basex.core.cmd.Set("MAXLEN", "160").execute(ctx);
 
-    /**
-     * Returns 0 if no update is required
-     *
-     * @return 0 if no update is required, the old size otherwise
-     */
-    private synchronized long checkDbSizeAndGetOld() {
-        if (currentDbSize.get() >= maxDbSizeSizePerChunk) {
-            return currentDbSize.getAndSet(0);
+            new org.basex.core.cmd.Set("DTD", "false").execute(ctx);
+            new org.basex.core.cmd.Set("XINCLUDE", "false").execute(ctx);
+            new org.basex.core.cmd.Set("INTPARSE", "true").execute(ctx);
+
+            new org.basex.core.cmd.Set("ENFORCEINDEX", "true").execute(ctx);
+            new org.basex.core.cmd.Set("COPYNODE", "false").execute(ctx);
+
+            new org.basex.core.cmd.Set("CHOP",
+                    config.getPropertyOrDefault(CHOP_WHITESPACES, "true")).execute(ctx);
+            // already filtered
+            new org.basex.core.cmd.Set("SKIPCORRUPT", "false").execute(ctx);
+        } catch (BaseXException e) {
+            logger.error("Failed to set option ", e);
         }
-        return 0;
     }
 
-    private synchronized Context createDbAndExchangeContext() throws BaseXException {
-        final Context oldContext = this.ctx;
-        currentDbName = dbBaseName + "-" + String.format("%03d", ++currentDbIndex);
-        final Context newCtx = new Context(this.ctx);
-        new CreateDB(currentDbName).execute(newCtx);
-        this.ctx = newCtx;
-        logger.info("Creating next database {} ", currentDbName);
-        return oldContext;
+    private void flushAndOptimize(final String oldDbName, final long oldDbSize, final Context oldCtx) {
+        try {
+            new Flush().execute(oldCtx);
+            logger.info("Added {} to database {}", FileUtils.byteCountToDisplaySize(oldDbSize), oldDbName);
+            if (oldDbSize >= this.minSizeForOptimization) {
+                logger.info("Optimizing");
+                new OptimizeAll().execute(oldCtx);
+            }
+        } catch (final BaseXException e) {
+            logger.error("Error flushing database", e);
+        }
+        try {
+            new Close().execute(oldCtx);
+        } catch (BaseXException e) {
+            ExcUtils.suppress(e);
+        }
+    }
+
+    void checkForNextDatabase() {
+        if (currentDbSize.get() >= dbSizeSizePerChunkThreshold && flushLock.tryLock()) {
+            // get priority lock
+            fairCtxLock.writeLock().lock();
+            final Context oldCtx = this.ctx;
+            final Context newCtx = new Context();
+            setOptions(newCtx);
+            this.ctx = newCtx;
+            final String oldDbName = currentDbName;
+            currentDbName = dbBaseName + "-" + String.format("%03d", ++currentDbIndex);
+            try {
+                new CreateDB(currentDbName).execute(this.ctx);
+                logger.info("Created next database {} ", this.currentDbName);
+            } catch (final BaseXException e) {
+                this.ctx.close();
+                logger.error("Next database {} could not be created", this.currentDbName, e);
+            }
+            final long oldDbSize = currentDbSize.getAndSet(0);
+            fairCtxLock.writeLock().unlock();
+            flushAndOptimize(oldDbName, oldDbSize, oldCtx);
+            flushLock.unlock();
+        }
     }
 
     @Override
-    public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+    public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) {
         if (Thread.currentThread().isInterrupted()) {
             return FileVisitResult.TERMINATE;
         }
-        final long oldDbSize = checkDbSizeAndGetOld();
-        if (oldDbSize > 0) {
-            final String tOldDbName = this.currentDbName;
-            final Context oldContext = createDbAndExchangeContext();
-            // Flush and optimize the current database
-            logger.info(
-                    "Added {} to test database {}",
-                    FileUtils.byteCountToDisplaySize(oldDbSize),
-                    tOldDbName);
-            logger.info("Flushing the current test database due to the size limit of {}", FileUtils
-                    .byteCountToDisplaySize(maxDbSizeSizePerChunk));
-            logger.info("Optimizing database {} ", tOldDbName);
-            flushAndOptimize(oldContext);
-        }
-
+        checkForNextDatabase();
         try {
             final String fileName = file.toAbsolutePath().toString().substring(filenameCutIndex);
+            fairCtxLock.readLock().lock();
             new Add(fileName, file.toString()).execute(ctx);
             currentDbSize.addAndGet(attrs.size());
+            fairCtxLock.readLock().unlock();
             synchronized (this) {
                 fileCount++;
                 size += attrs.size();
             }
-        } catch (BaseXException bsxEx) {
+        } catch (IOException bsxEx) {
             // Skip not well-formed files
             logger.warn("Data import of file " + file.toString() + " failed : " + bsxEx.getMessage());
+            synchronized (skippedFiles) {
+                skippedFiles.add(file.getFileName().toString());
+            }
+            try {
+                fairCtxLock.readLock().unlock();
+            } catch (IllegalMonitorStateException ign) {
+                ExcUtils.suppress(ign);
+            }
+        }
+        return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) {
+        return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFileFailed(final Path file, final IOException exc) {
+        synchronized (skippedFiles) {
             skippedFiles.add(file.getFileName().toString());
         }
         return FileVisitResult.CONTINUE;
     }
 
     @Override
-    public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
-        return FileVisitResult.CONTINUE;
-    }
-
-    @Override
-    public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
-        skippedFiles.add(file.getFileName().toString());
-        return FileVisitResult.CONTINUE;
-    }
-
-    @Override
-    public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+    public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) {
         return FileVisitResult.CONTINUE;
     }
 
     @Override
     public void release() {
         try {
-            logger.info("Optimizing last database {} ", currentDbName);
-            flushAndOptimize(ctx);
-            new Open(currentDbName).execute(ctx);
-            new Close().execute(ctx);
-            ctx.close();
-            logger.info("Import completed");
-        } catch (final BaseXException e) {
+            if (flushLock.tryLock(6, TimeUnit.MINUTES)) {
+                flushAndOptimize(currentDbName, currentDbSize.get(), this.ctx);
+                new Open(currentDbName).execute(ctx);
+                new Close().execute(ctx);
+                ctx.close();
+                logger.info("Import completed.");
+                flushLock.unlock();
+            } else {
+                logger.info("Failed to acquire lock, for final import");
+            }
+        } catch (InterruptedException | BaseXException e) {
             logger.error("Database import failed: ", e);
+            try {
+                flushLock.unlock();
+            } catch (final IllegalMonitorStateException ign) {
+                ExcUtils.suppress(ign);
+            }
         }
     }
 

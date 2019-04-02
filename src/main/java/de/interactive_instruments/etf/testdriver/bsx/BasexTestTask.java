@@ -19,6 +19,9 @@
  */
 package de.interactive_instruments.etf.testdriver.bsx;
 
+import static de.interactive_instruments.etf.testdriver.bsx.BsxConstants.PROJECT_CHECK_FILE_SUFFIX;
+import static de.interactive_instruments.etf.testdriver.bsx.BsxConstants.PROJECT_CHECK_FILE_SUFFIX_DEPRECATED;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -28,7 +31,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.RegexFileFilter;
 import org.basex.core.BaseXException;
 import org.basex.core.Context;
@@ -37,6 +39,7 @@ import org.basex.core.cmd.DropDB;
 import org.basex.query.QueryException;
 import org.basex.query.QueryProcessor;
 
+import de.interactive_instruments.FileUtils;
 import de.interactive_instruments.IFile;
 import de.interactive_instruments.SUtils;
 import de.interactive_instruments.etf.dal.dao.WriteDao;
@@ -45,6 +48,7 @@ import de.interactive_instruments.etf.dal.dto.run.TestRunDto;
 import de.interactive_instruments.etf.dal.dto.run.TestTaskDto;
 import de.interactive_instruments.etf.model.EID;
 import de.interactive_instruments.etf.model.EidFactory;
+import de.interactive_instruments.etf.model.Parameterizable;
 import de.interactive_instruments.etf.testdriver.AbstractTestTask;
 import de.interactive_instruments.etf.testdriver.AbstractTestTaskProgress;
 import de.interactive_instruments.etf.testdriver.TestResultCollector;
@@ -59,6 +63,7 @@ import de.interactive_instruments.exceptions.config.ConfigurationException;
 import de.interactive_instruments.io.FileHashVisitor;
 import de.interactive_instruments.io.MultiThreadedFilteredFileVisitor;
 import de.interactive_instruments.io.PathFilter;
+import de.interactive_instruments.properties.ConfigPropertyHolder;
 import de.interactive_instruments.validation.ParalellSchemaValidationManager;
 
 /**
@@ -72,13 +77,12 @@ class BasexTestTask extends AbstractTestTask {
     // TODO remove
     private final WriteDao<TestObjectDto> testObjectDao;
     private final Context ctx;
+    private final ConfigPropertyHolder config;
     // private final IFile dsDir;
     private QueryProcessor proc;
     // The basex project file
     private final IFile projectFile;
     private final IFile projDir;
-    private final long maxDbChunkSize;
-    private final boolean chopWhitespaces;
     private TestResultCollector resultCollector;
 
     static class BasexTaskProgress extends AbstractTestTaskProgress {
@@ -94,22 +98,12 @@ class BasexTestTask extends AbstractTestTask {
     /**
      * Default constructor.
      *
-     *
-     * @param testObjectDao
-     * @param maxDbChunkSize
-     *            maximum size of one database chunk
-     * @throws IOException
-     *             I/O error
-     * @throws QueryException
-     *             database error
      */
     public BasexTestTask(final TestTaskDto testTaskDto, final WriteDao<TestObjectDto> testObjectDao,
-            final long maxDbChunkSize, final boolean chopWhitespaces) {
+            final ConfigPropertyHolder config) {
         super(testTaskDto, new BasexTaskProgress(), BasexTestTask.class.getClassLoader());
         this.testObjectDao = testObjectDao;
-
-        this.maxDbChunkSize = maxDbChunkSize;
-        this.chopWhitespaces = chopWhitespaces;
+        this.config = config;
 
         this.dbName = BsxConstants.ETF_TESTDB_PREFIX + testTaskDto.getTestObject().getId().toString();
         this.ctx = new Context();
@@ -155,10 +149,14 @@ class BasexTestTask extends AbstractTestTask {
         final boolean testObjectChanged;
         if ("false".equals(testObject.properties().getPropertyOrDefault("indexed", "false"))) {
             testObjectChanged = true;
-            getLogger().info("Creating new tests databases to speed up tests.");
+            getLogger().info("Creating new tests databases to speed up tests. "
+                    + "Indexing " + fileHashVisitor.getFileCount() + " files with an total size of "
+                    + FileUtils.byteCountToDisplayRoundedSize(fileHashVisitor.getSize(), 2));
         } else if (!fileHashVisitor.getHash().equals(testObject.getItemHash())) {
             // Delete old databases
-            getLogger().info("Recreating new tests databases as the Test Object has changed!");
+            getLogger().info("Recreating new tests databases as the Test Object has changed. "
+                    + "Indexing " + fileHashVisitor.getFileCount() + " files with an total size of "
+                    + FileUtils.byteCountToDisplayRoundedSize(fileHashVisitor.getSize(), 2));
             for (int i = 0; i < 10000; i++) {
                 boolean dropped = Boolean.valueOf(new DropDB(this.dbName + "-" + i).execute(ctx));
                 if (dropped) {
@@ -213,10 +211,11 @@ class BasexTestTask extends AbstractTestTask {
         // Initialize Database Partitioner
         final DatabaseVisitor databaseVisitor;
         if (testObjectChanged) {
-            databaseVisitor = new DatabasePartitioner(maxDbChunkSize, getLogger(), this.dbName,
-                    testDataDirDir.getAbsolutePath().length(), chopWhitespaces);
+            databaseVisitor = new DatabasePartitioner(config, getLogger(), this.dbName,
+                    testDataDirDir.getAbsolutePath().length());
         } else {
-            databaseVisitor = new DatabaseInventarization(maxDbChunkSize);
+            // TODO remove, not needed anymore. dbCount property is set by DatabasePartitioner
+            databaseVisitor = new DatabaseInventarization(config);
         }
 
         // Combine filters and visitors
@@ -228,6 +227,8 @@ class BasexTestTask extends AbstractTestTask {
         databaseVisitor.release();
         if (testObjectChanged) {
             testObject.properties().setProperty("indexed", "true");
+            testObject.properties().setProperty("dbCount",
+                    String.valueOf(((DatabasePartitioner) databaseVisitor).getDbCount()));
             testObject.setItemHash(fileHashVisitor.getHash());
             testObject.properties().setProperty("files", String.valueOf(fileHashVisitor.getFileCount()));
             testObject.properties().setProperty("size", String.valueOf(fileHashVisitor.getSize()));
@@ -275,7 +276,7 @@ class BasexTestTask extends AbstractTestTask {
         proc.bind("$tmpDir", this.resultCollector.getTempDir());
         proc.bind("$dbDir", testDataDirDir.getPath());
         proc.bind("$etsFile", testTaskDto.getExecutableTestSuite().getLocalPath());
-        proc.bind("$dbCount", databaseVisitor.getDbCount());
+        proc.bind("$dbCount", testObject.properties().getPropertyAsInt("dbCount"));
         proc.bind("$reportLabel", ((TestRunDto) testTaskDto.getParent()).getLabel());
         proc.bind("$reportStartTimestamp", getProgress().getStartTimestamp().getTime());
 
@@ -337,22 +338,42 @@ class BasexTestTask extends AbstractTestTask {
      */
     private void checkUserParameters() throws IOException, QueryException, InvalidParameterException {
         // Check parameters by executing the xquery script
-        final String checkParamXqFileName = projectFile.getName().replace(BsxConstants.BSX_ETS_FILE,
-                BsxConstants.PROJECT_CHECK_FILE_SUFFIX);
-        final IFile checkParamXqFile = projDir.secureExpandPathDown(checkParamXqFileName);
-        if (checkParamXqFile.exists()) {
-            proc = new QueryProcessor(checkParamXqFile.readContent().toString(), ctx);
-            try {
-                setUserParameters();
-                proc.compile();
-                // Version 8
-                proc.value();
-            } catch (QueryException e) {
-                getLogger().info("Invalid user parameters. Error message: " + e.getMessage());
-                throw e;
+        final String procetFileName = this.projectFile.getName();
+        final int li = procetFileName.lastIndexOf("-");
+        if (li > 0) {
+            final String checkParamXqFileName = procetFileName.substring(0, li) + PROJECT_CHECK_FILE_SUFFIX;
+            final IFile checkParamXqFileNew = projDir.secureExpandPathDown(checkParamXqFileName);
+            final IFile checkParamXqFile;
+            if (!checkParamXqFileNew.exists()) {
+                // Support old check parameter files names with -bsxpc.xq
+                final String checkParamXqFileNameDeprecated = procetFileName.substring(0, li)
+                        + PROJECT_CHECK_FILE_SUFFIX_DEPRECATED;
+                final IFile checkParamXqFileDeprecated = projDir.secureExpandPathDown(checkParamXqFileNameDeprecated);
+                checkParamXqFile = checkParamXqFileDeprecated;
+                if (checkParamXqFile.exists()) {
+                    getLogger().warn("This information is intended for the ETS developer: "
+                            + "deprecated parameter check file name is used. Please rename the file '{}' to '{}'. ",
+                            checkParamXqFileNameDeprecated, checkParamXqFileName);
+                }
+            } else {
+                checkParamXqFile = checkParamXqFileNew;
             }
-            getLogger().info("User parameters accepted");
-            proc.close();
+
+            if (checkParamXqFile.exists()) {
+                proc = new QueryProcessor(checkParamXqFile.readContent().toString(), ctx);
+                try {
+                    setUserParameters();
+                    proc.compile();
+                    // Version 8
+                    proc.value();
+                } catch (QueryException e) {
+                    getLogger().info("Invalid user parameters. Error message: " + e.getMessage());
+                    throw e;
+                }
+                getLogger().info("User parameters accepted");
+                proc.close();
+            }
+
         }
     }
 
@@ -365,7 +386,16 @@ class BasexTestTask extends AbstractTestTask {
     private void setUserParameters() throws QueryException {
         // Bind additional user specified properties
         for (Map.Entry<String, String> property : this.testTaskDto.getArguments().values().entrySet()) {
-            proc.bind(property.getKey(), property.getValue());
+            final Parameterizable.Parameter p = this.testTaskDto.getExecutableTestSuite().getParameters()
+                    .getParameter(property.getKey());
+
+            // do not set empty parameters unless they are required or the key is empty
+            if (!SUtils.isNullOrEmpty(property.getKey()) && (!SUtils.isNullOrEmpty(property.getKey())
+                    || (p != null && p.isRequired()))) {
+                // replace whitespaces with underscores
+                proc.bind(property.getKey().replaceAll(
+                        "\\s+", "_"), property.getValue());
+            }
         }
     }
 

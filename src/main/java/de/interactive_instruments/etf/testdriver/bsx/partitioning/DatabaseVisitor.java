@@ -21,35 +21,10 @@ package de.interactive_instruments.etf.testdriver.bsx.partitioning;
 
 import java.nio.file.FileVisitor;
 import java.nio.file.Path;
-import java.util.Set;
 
 import de.interactive_instruments.Releasable;
 
 /**
  * @author Jon Herrmann ( herrmann aT interactive-instruments doT de )
  */
-public interface DatabaseVisitor extends Releasable, FileVisitor<Path> {
-
-    Set<String> getSkippedFiles();
-
-    /**
-     * Number of databases.
-     *
-     * @return number of databases
-     */
-    int getDbCount();
-
-    /**
-     * Total size of files.
-     *
-     * @return files size in bytes
-     */
-    long getSize();
-
-    /**
-     * Number of files.
-     *
-     * @return number of files
-     */
-    long getFileCount();
-}
+public interface DatabaseVisitor extends Releasable, FileVisitor<Path> {}

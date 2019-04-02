@@ -25,13 +25,17 @@ public final class BsxConstants {
 
     public static final String ETS_DEF_FILE_SUFFIX = "-bsxets.xml";
 
-    public static final String BSX_ETS_FILE = "-bsxets.xq";
-
-    public static final String PROJECT_CHECK_FILE_SUFFIX = "-bsxpc.xq";
+    public static final String PROJECT_CHECK_FILE_SUFFIX_DEPRECATED = "-bsxpc.xq";
+    public static final String PROJECT_CHECK_FILE_SUFFIX = "-check-parameters.xq";
 
     public static final String ETF_TESTDB_PREFIX = "etf-tdb-";
 
     public static final String PROJECT_DIR_KEY = "etf.projects.dir";
 
-    public static final String DB_MAX_CHUNK_SIZE = "etf.testdrivers.bsx.db.chunk.max.size";
+    public static final String DB_MAX_CHUNK_THRESHOLD = "etf.testdrivers.bsx.db.chunk.size.threshold";
+    public static final long DEFAULT_CHUNK_SIZE_THRESHOLD = 33500000000L;
+
+    public static final String CHOP_WHITESPACES = "etf.testdrivers.bsx.whitespaces.chop";
+
+    public static final String MIN_OPTIMIZATION_SIZE = "etf.testdrivers.bsx.optimization.size.min";
 }
