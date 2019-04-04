@@ -94,12 +94,12 @@ public class DatabasePartitioner implements DatabaseVisitor {
         this.dbSizeSizePerChunkThreshold = chunkSize;
 
         long minSizeForOptimization;
-        final long GB_40 = 42949672960L;
+        final long GB_30 = 32212254720L;
         try {
-            minSizeForOptimization = config.getPropertyOrDefaultAsLong(MIN_OPTIMIZATION_SIZE, GB_40);
+            minSizeForOptimization = config.getPropertyOrDefaultAsLong(MIN_OPTIMIZATION_SIZE, GB_30);
         } catch (InvalidPropertyException e) {
             ExcUtils.suppress(e);
-            minSizeForOptimization = GB_40;
+            minSizeForOptimization = GB_30;
         }
         this.minSizeForOptimization = minSizeForOptimization;
 
@@ -143,7 +143,7 @@ public class DatabasePartitioner implements DatabaseVisitor {
     private void flushAndOptimize(final String oldDbName, final long oldDbSize, final Context oldCtx) {
         try {
             new Flush().execute(oldCtx);
-            logger.info("Added {} to database {}", FileUtils.byteCountToDisplaySize(oldDbSize), oldDbName);
+            logger.info("Added {} to database {}", FileUtils.byteCountToDisplayRoundedSize(oldDbSize, 2), oldDbName);
             if (oldDbSize >= this.minSizeForOptimization) {
                 logger.info("Optimizing");
                 new OptimizeAll().execute(oldCtx);
