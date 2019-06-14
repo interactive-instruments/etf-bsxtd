@@ -58,7 +58,6 @@ import de.interactive_instruments.etf.testdriver.bsx.partitioning.DatabaseVisito
 import de.interactive_instruments.exceptions.ExcUtils;
 import de.interactive_instruments.exceptions.InitializationException;
 import de.interactive_instruments.exceptions.InvalidParameterException;
-import de.interactive_instruments.exceptions.InvalidStateTransitionException;
 import de.interactive_instruments.exceptions.config.ConfigurationException;
 import de.interactive_instruments.io.FileHashVisitor;
 import de.interactive_instruments.io.MultiThreadedFilteredFileVisitor;
@@ -409,12 +408,16 @@ class BasexTestTask extends AbstractTestTask {
         } catch (BaseXException e) {
             ExcUtils.suppress(e);
         }
+        // set to null or this will cause
+        // a memory leak in multiple test runs
+        this.proc = null;
     }
 
     @Override
-    protected void doCancel() throws InvalidStateTransitionException {
+    protected void doCancel() {
         if (proc != null) {
             proc.stop();
+            this.proc = null;
         }
     }
 }
