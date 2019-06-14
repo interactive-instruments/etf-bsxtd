@@ -27,14 +27,10 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.basex.core.BaseXException;
-import org.basex.core.Context;
 import org.basex.core.cmd.*;
 import org.slf4j.Logger;
 
@@ -51,8 +47,9 @@ public class DatabasePartitioner implements DatabaseVisitor {
 
     private final ConfigPropertyHolder config;
     private final long dbSizeSizePerChunkThreshold;
+    private final long dbSizeSizePerChunkLowerThreshold;
     private final long minSizeForOptimization;
-    private Context ctx = new Context();
+    private DatabaseChunk chunk;
     private final String dbBaseName;
     private final Set<String> skippedFiles = new TreeSet<>();
     private final Logger logger;
@@ -63,7 +60,7 @@ public class DatabasePartitioner implements DatabaseVisitor {
     private String currentDbName;
 
     // synchronized
-    private AtomicLong currentDbSize = new AtomicLong(0);
+    // private long currentDbSize = 0;
 
     // synchronized
     private long fileCount = 0L;
@@ -75,8 +72,7 @@ public class DatabasePartitioner implements DatabaseVisitor {
 
     // The write lock is acquired when the database is flushed,
     // read locks are acquired for adding single files
-    private final Lock flushLock = new ReentrantLock();
-    private final ReentrantReadWriteLock fairCtxLock = new ReentrantReadWriteLock(true);
+    private final Lock contextExchangeLock = new ReentrantLock();
 
     public DatabasePartitioner(final ConfigPropertyHolder config, final Logger logger,
             final String dbName, final int filenameCutIndex) throws BaseXException {
@@ -87,11 +83,16 @@ public class DatabasePartitioner implements DatabaseVisitor {
         long chunkSize;
         try {
             chunkSize = config.getPropertyOrDefaultAsLong(BsxConstants.DB_MAX_CHUNK_THRESHOLD, DEFAULT_CHUNK_SIZE_THRESHOLD);
+            // one MB
+            if (chunkSize < 11000000) {
+                chunkSize = 11000000;
+            }
         } catch (InvalidPropertyException e) {
             ExcUtils.suppress(e);
             chunkSize = DEFAULT_CHUNK_SIZE_THRESHOLD;
         }
         this.dbSizeSizePerChunkThreshold = chunkSize;
+        this.dbSizeSizePerChunkLowerThreshold = Math.round(8.5 * chunkSize);
 
         long minSizeForOptimization;
         final long GB_30 = 32212254720L;
@@ -106,79 +107,61 @@ public class DatabasePartitioner implements DatabaseVisitor {
         this.currentDbName = dbBaseName + "-000";
 
         this.config = config;
-        setOptions(ctx);
 
         if (this.dbSizeSizePerChunkThreshold != DEFAULT_CHUNK_SIZE_THRESHOLD) {
             this.logger.info("Database chunk size threshold is set to  {}",
                     FileUtils.byteCountToDisplayRoundedSize(dbSizeSizePerChunkThreshold, 2));
         }
         this.logger.info("Creating first database {}", this.currentDbName);
-        new CreateDB(currentDbName).execute(ctx);
+        this.chunk = DatabaseChunk.newChunk(config, currentDbName);
     }
 
-    private void setOptions(final Context ctx) {
+    private void flushAndOptimize(final String oldDbName, final DatabaseChunk databaseChunk) {
         try {
-            new org.basex.core.cmd.Set("AUTOFLUSH", "false").execute(ctx);
-            new org.basex.core.cmd.Set("TEXTINDEX", "true").execute(ctx);
-            new org.basex.core.cmd.Set("ATTRINDEX", "true").execute(ctx);
-            new org.basex.core.cmd.Set("FTINDEX", "true").execute(ctx);
-            new org.basex.core.cmd.Set("MAXLEN", "160").execute(ctx);
-
-            new org.basex.core.cmd.Set("DTD", "false").execute(ctx);
-            new org.basex.core.cmd.Set("XINCLUDE", "false").execute(ctx);
-            new org.basex.core.cmd.Set("INTPARSE", "true").execute(ctx);
-
-            new org.basex.core.cmd.Set("ENFORCEINDEX", "true").execute(ctx);
-            new org.basex.core.cmd.Set("COPYNODE", "false").execute(ctx);
-
-            new org.basex.core.cmd.Set("CHOP",
-                    config.getPropertyOrDefault(CHOP_WHITESPACES, "true")).execute(ctx);
-            // already filtered
-            new org.basex.core.cmd.Set("SKIPCORRUPT", "false").execute(ctx);
-        } catch (BaseXException e) {
-            logger.error("Failed to set option ", e);
-        }
-    }
-
-    private void flushAndOptimize(final String oldDbName, final long oldDbSize, final Context oldCtx) {
-        try {
-            new Flush().execute(oldCtx);
-            logger.info("Added {} to database {}", FileUtils.byteCountToDisplayRoundedSize(oldDbSize, 2), oldDbName);
-            if (oldDbSize >= this.minSizeForOptimization) {
+            new Flush().execute(databaseChunk.ctx);
+            logger.info("Added {} to database {}", FileUtils.byteCountToDisplayRoundedSize(databaseChunk.size, 2), oldDbName);
+            if (databaseChunk.size >= this.minSizeForOptimization) {
                 logger.info("Optimizing");
-                new OptimizeAll().execute(oldCtx);
+                new OptimizeAll().execute(databaseChunk.ctx);
             }
         } catch (final BaseXException e) {
             logger.error("Error flushing database", e);
         }
         try {
-            new Close().execute(oldCtx);
+            new Close().execute(databaseChunk.ctx);
         } catch (BaseXException e) {
             ExcUtils.suppress(e);
         }
     }
 
-    void checkForNextDatabase() {
-        if (currentDbSize.get() >= dbSizeSizePerChunkThreshold && flushLock.tryLock()) {
-            // get priority lock
-            fairCtxLock.writeLock().lock();
-            final Context oldCtx = this.ctx;
-            final Context newCtx = new Context();
-            setOptions(newCtx);
-            this.ctx = newCtx;
+    DatabaseChunk getChunk(final long fileSize) {
+        contextExchangeLock.lock();
+        final DatabaseChunk currentChunk = this.chunk;
+        // Create new chunk if the current size exceeds the threshold or if the
+        // current chunk size is 85 % of the threshold and exceeds with the current
+        // file the threshold
+        if (currentChunk.size > this.dbSizeSizePerChunkThreshold ||
+                (currentChunk.size + fileSize > this.dbSizeSizePerChunkThreshold &&
+                        currentChunk.size > this.dbSizeSizePerChunkLowerThreshold)) {
             final String oldDbName = currentDbName;
             currentDbName = dbBaseName + "-" + String.format("%03d", ++currentDbIndex);
             try {
-                new CreateDB(currentDbName).execute(this.ctx);
+                this.chunk = DatabaseChunk.newChunk(config, currentDbName);
                 logger.info("Created next database {} ", this.currentDbName);
             } catch (final BaseXException e) {
-                this.ctx.close();
+                this.chunk.ctx.close();
                 logger.error("Next database {} could not be created", this.currentDbName, e);
             }
-            final long oldDbSize = currentDbSize.getAndSet(0);
-            fairCtxLock.writeLock().unlock();
-            flushAndOptimize(oldDbName, oldDbSize, oldCtx);
-            flushLock.unlock();
+            contextExchangeLock.unlock();
+            // created a new chunk and opened the database. We must flush the old chunk
+            // before we can proceed. This can be done in parallel
+            flushAndOptimize(oldDbName, currentChunk);
+            // during the flush another new chunk could have been created
+            return getChunk(fileSize);
+        } else {
+            this.chunk = currentChunk.incSize(fileSize);
+            contextExchangeLock.unlock();
+            return currentChunk;
         }
     }
 
@@ -187,27 +170,19 @@ public class DatabasePartitioner implements DatabaseVisitor {
         if (Thread.currentThread().isInterrupted()) {
             return FileVisitResult.TERMINATE;
         }
-        checkForNextDatabase();
+        final long fileSize = attrs.size();
         try {
             final String fileName = file.toAbsolutePath().toString().substring(filenameCutIndex);
-            fairCtxLock.readLock().lock();
-            new Add(fileName, file.toString()).execute(ctx);
-            currentDbSize.addAndGet(attrs.size());
-            fairCtxLock.readLock().unlock();
+            getChunk(fileSize).add(fileName, file);
             synchronized (this) {
                 fileCount++;
-                size += attrs.size();
+                size += fileSize;
             }
         } catch (IOException bsxEx) {
             // Skip not well-formed files
             logger.warn("Data import of file " + file.toString() + " failed : " + bsxEx.getMessage());
             synchronized (skippedFiles) {
                 skippedFiles.add(file.getFileName().toString());
-            }
-            try {
-                fairCtxLock.readLock().unlock();
-            } catch (IllegalMonitorStateException ign) {
-                ExcUtils.suppress(ign);
             }
         }
         return FileVisitResult.CONTINUE;
@@ -234,23 +209,13 @@ public class DatabasePartitioner implements DatabaseVisitor {
     @Override
     public void release() {
         try {
-            if (flushLock.tryLock(6, TimeUnit.MINUTES)) {
-                flushAndOptimize(currentDbName, currentDbSize.get(), this.ctx);
-                new Open(currentDbName).execute(ctx);
-                new Close().execute(ctx);
-                ctx.close();
-                logger.info("Import completed.");
-                flushLock.unlock();
-            } else {
-                logger.info("Failed to acquire lock, for final import");
-            }
-        } catch (InterruptedException | BaseXException e) {
+            flushAndOptimize(currentDbName, this.chunk);
+            new Open(currentDbName).execute(chunk.ctx);
+            new Close().execute(chunk.ctx);
+            chunk.ctx.close();
+            logger.info("Import completed.");
+        } catch (BaseXException e) {
             logger.error("Database import failed: ", e);
-            try {
-                flushLock.unlock();
-            } catch (final IllegalMonitorStateException ign) {
-                ExcUtils.suppress(ign);
-            }
         }
     }
 

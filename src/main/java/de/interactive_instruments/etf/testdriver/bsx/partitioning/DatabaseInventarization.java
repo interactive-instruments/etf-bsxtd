@@ -60,8 +60,7 @@ public class DatabaseInventarization implements DatabaseVisitor {
     }
 
     @Override
-    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-            throws IOException {
+    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
         if (Thread.currentThread().isInterrupted()) {
             return FileVisitResult.TERMINATE;
         }
